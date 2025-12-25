@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Автобусные остановки города Тулы</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.css"/>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster/dist/MarkerCluster.Default.css"/>
+
+  <style>
+    body, html { margin: 0; padding: 0; }
+    #map { height: 100vh; width: 100%; }
+  </style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster/dist/leaflet.markercluster.js"></script>
+
+<script>
+  const map = L.map('map').setView([59.9336, 30.3429], 12);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap'
+  }).addTo(map);
+
+  let stops = [];
+  let userMarker = null;
+  let lineToStop = null;
+
+  function haversine(lat1, lon1, lat2, lon2) {
+    const R = 6371000;
+    const toRad = x => x * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+      Math.sin(dLat/2)**2 +
+      Math.cos(toRad(lat1))*Math.cos(toRad(lat2)) *
+      Math.sin(dLon/2)**2;
+    return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  function getStopType(props) {
+    if (props.tram === 'yes') return '🚋 Трамвай';
+    if (props.highway === 'bus_stop') return '🚌 Автобус';
+    if (props.public_transport === 'platform') return '🚏 Платформа';
+    return '❓ Тип не указан';
+  }
+
+  function getStopColor(props) {
+    if (props.tram === 'yes') return 'red';
+    if (props.highway === 'bus_stop') return 'blue';
+    if (props.public_transport === 'platform') return 'green';
+    return 'gray';
+  }
+
+  fetch('../data/stops_processed.geojson')
+    .then(r => r.json())
+    .then(data => {
+      stops = data.features;
+
+      const cluster = L.markerClusterGroup();
+
+      const layer = L.geoJSON(data, {
+        pointToLayer: (feature, latlng) => {
+          const color = getStopColor(feature.properties || {});
+          return L.circleMarker(latlng, {
+            radius: 4,
+            color: color,
+            fillOpacity: 0.8
+          });
+        },
+        onEachFeature: (feature, layer) => {
+          const p = feature.properties || {};
+          const name = p.name || 'Остановка без названия';
+          const type = getStopType(p);
+          layer.bindPopup(`<b>${name}</b><br>${type}`);
+        }
+      });
+
+      cluster.addLayer(layer);
+      map.addLayer(cluster);
+      map.fitBounds(cluster.getBounds());
+    });
+
+  map.on('click', e => {
+    if (stops.length === 0) return;
+
+    const lat = e.latlng.lat;
+    const lon = e.latlng.lng;
+
+    if (userMarker) map.removeLayer(userMarker);
+    if (lineToStop) map.removeLayer(lineToStop);
+
+    userMarker = L.marker([lat, lon]).addTo(map);
+
+    let nearest = null;
+    let minDist = Infinity;
+
+    stops.forEach(f => {
+      const [slon, slat] = f.geometry.coordinates;
+      const d = haversine(lat, lon, slat, slon);
+      if (d < minDist) {
+        minDist = d;
+        nearest = f;
+      }
+    });
+
+    const stopLat = nearest.geometry.coordinates[1];
+    const stopLon = nearest.geometry.coordinates[0];
+
+    lineToStop = L.polyline(
+      [[lat, lon], [stopLat, stopLon]],
+      { color: 'red', weight: 2 }
+    ).addTo(map);
+
+    const stopName = nearest.properties?.name || 'Остановка без названия';
+
+    userMarker.bindPopup(
+      `<b>Выбранная точка</b><br>
+       Ближайшая остановка: <b>${stopName}</b><br>
+       Расстояние: <b>${Math.round(minDist)} м</b>`
+    ).openPopup();
+  });
+</script>
+
+</body>
+</html>
+
