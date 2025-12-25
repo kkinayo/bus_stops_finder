@@ -66,7 +66,6 @@ stops_processed.geojson
 - OpenStreetMap
 - Overpass API
 - GeoJSON
-- GDAL/OGR (через высокоуровневые Python-инструменты)
 
 ---
 
